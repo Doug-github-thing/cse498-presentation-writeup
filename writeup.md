@@ -41,12 +41,12 @@ These will be expanded upon in the Using Storage to Improve Performance section.
 
 ## Examining Interactions with the Storage System
 
-- fsync
+- `fsync`
 - Fragmentation
 - Thrashing
-- Improper access patterns
 - Read/write amplification
-- Logging
+- Improper access patterns
+- Impact of Logging
 
 ### `fsync` and Buffering
 
@@ -54,17 +54,23 @@ These will be expanded upon in the Using Storage to Improve Performance section.
 
 Significant speed improvements can be achieved by buffering writes to minimize the number of `fsync` calls in a program. However the biggest trade-off to consider in this case is that of data integrity. If using heavy write buffering, the larger the buffer size prior to an `fsync`, the more data can be lost in the event of a crash. The Runtime Performance vs Data Integrity trade-off requires us to be conscious of when we can afford to lose a little data here and there, and when we can't. A text editor can afford to miss a few recent uncommitted lines. We expect a videogame to likely not be able to recover all of the most up to date data following a device power failure. These are applications where the user experience is much more important than absolute data integrity. In contrast, computer systems responsible for critical infrastructure, banking, government records, systems compliant with FDA Title 21 CFR Part 11 are application areas where data integrity is held at a much higher regard than user experience. Design decisions must be made with those considerations in mind.
 
-TODO Expand on Spear point: In addition to the data integrity risks of large buffers, using buffers may also hinder performance by negatively affecting cache locality / page table... You almost always want to base buffer on page size.
+The OS will buffer writes on its own to minimize the necessity for `fsync` calls. This means that if an application values data integrity over performance, `fsync` will need to be manually called to guarantee writes make it to disk. However in specific circumstances, a programmer may choose to manually buffer in user space. A reason to do this might be to strike a middle ground in the Performance vs Data Integrity spectrum. If no buffer causes very slow performance and a large buffer causes very fast performance but at high risk, an application may opt for a middle ground and choose to create a manual buffer somewhere in between, at a happy medium applicable to the application's needs. Another consideration when creating a manual buffer is the potential performance cost of a chosen buffer size that would negatively affect cache / paging performance. Choosing a buffer size based on page size is a good idea, to ensure that the buffer does not cause poor memory performance while trying to improve storage performance.
 
-### TODO: Fragmentation
+### Fragmentation
+
+Fragmentation refers to when chunks of data are stored in discontiguous locations on a HDD. This is a problem, since the spinning disk and read/write head take a long time to get to where they need to be to perform read/write operations. Scanning between discontiguous locations incurs this physicality penalty more times than would be required by the system if the data were stored contiguously. In a HDD, occasional defragmentation is recommended to make sure that gaps in the disk are closed, so that data accesses can be performed more efficiently.
+
+While this is of particular note for HDDs due to how the underlying technology used, flash-based storage like SSDs do not have this problem. By not having mechanical moving parts, the hardware technology improves the performance of random accesses relative to that of a hard disk. The result of this is that fragmentation is not a significant problem for SSDs performance. Flash technology imposes an opposing restriction however, which is the number of write cycles for a given block of data, usually around 10,000 to 100,000 cycles. Beyond the rated number of write cycles for a block of flash data, the ability for the drive to store new data becomes degraded, limiting the effective life of the device. Additionally, SSD hardware controllers actually intentionally fragment their data in a process called wear levelling, where they may store data in physically discontiguous blocks in order to improve the lifespan of the drive by ensuring that no block gets a disproportional amount of write cycles. Think of this like tire rotations in maintenance of a car. For these reasons, it is recommended that SSDs not be defragmented, due to the fact that rewriting large chunks of data at a time reduces device lifespan without providing significant performance improvements.
 
 ### TODO: Thrashing
 
 ### TODO: Read/Write Amplification
 
-### TODO: Access Patterns
+### Access Patterns
 
-Random vs sequential. Note, general advice is very much like when using RAM, but for different reasons!
+Similar to memory access, storage system access also rewards access to sequential blocks of data storage. The hardware implementations of hard disk based storage means that accessing data on disk can have a high latency while waiting for the read/write head to move to the location on the spinning disk between each access. This means that a program can be greatly rewarded by reading and writing data in contiguous sequential blocks as opposed to random accesses when interacting with HDD devices. This affect still carries over to access on an SSD due to affects like read/write amplification and `lseek` overhead, as we will explore in this section.
+
+The key takeaway here is that random accessing is less efficient in terms of per byte access performance than sequential bulk accesses to a the storage system. Structuring file system storage with keeping sequential accessing in mind can help speed up performance. Understanding the access patterns that are needed by the application allow the programmer to weigh the pros and cons of using several random accesses against using a few larger sequential accesses. The amount by which sequential access can speed up performance may sometimes justify reading or writing more data than is actually needed by the program. It is important to note that the general advice about keeping accesses sequential and aligned to storage blocks is very similar to advice about using main memory RAM due to cache behavior. The same advices comes out in regards to the storage system, but for different reasons.
 
 #### `lseek`
 
