@@ -31,8 +31,6 @@ As we explore how to better interact with the storage system when we look at opt
 
 There are sometimes cases where the needs of an application will require a programmer to regard efficient utlization of the storage system as a parameter of particular importance. This is true whenever storage space is limited such as porting videogames for consoles, but a more extreme example is in embedded systems. Due to low level design decisions, a programmer for embedded systems may find themselves writing code to run on devices where storage space can be on the order of kilobytes. If significant amounts of data are to be written to devices of such limited size, care must be taken to ensure that the needs of the application can be made to fit within the confines of the hardware.
 
-##### TODO: Maybe talk about compression in general a little bit. Not in detail, just that compression exists and should be used if this is something important to the application
-
 #### Using Space Inefficiently
 
 In many cases however, storage space is not the most important parameter to be optimized for, and there are in fact many cases where the parameters more important to an application rely on techniques that intentianally use storage space inefficiently.
@@ -62,9 +60,24 @@ Fragmentation refers to when chunks of data are stored in discontiguous location
 
 While this is of particular note for HDDs due to how the underlying technology used, flash-based storage like SSDs do not have this problem. By not having mechanical moving parts, the hardware technology improves the performance of random accesses relative to that of a hard disk. The result of this is that fragmentation is not a significant problem for SSDs performance. Flash technology imposes an opposing restriction however, which is the number of write cycles for a given block of data, usually around 10,000 to 100,000 cycles. Beyond the rated number of write cycles for a block of flash data, the ability for the drive to store new data becomes degraded, limiting the effective life of the device. Additionally, SSD hardware controllers actually intentionally fragment their data in a process called wear levelling, where they may store data in physically discontiguous blocks in order to improve the lifespan of the drive by ensuring that no block gets a disproportional amount of write cycles. Think of this like tire rotations in maintenance of a car. For these reasons, it is recommended that SSDs not be defragmented, due to the fact that rewriting large chunks of data at a time reduces device lifespan without providing significant performance improvements.
 
-### TODO: Thrashing
+### TODO LIAM: Thrashing
 
-### TODO: Read/Write Amplification
+### Read/Write Amplification
+
+Read/Write Amplification refers to operational overhead resulting from the low level hardware implementation of SSDs that result in larger amounts of data being read or written whenever a storage system access occurs. This can cost performance and reduce the lifespan of SSDs.
+
+Solid state drives store their data in pages (often 4KB) within blocks (usually 256KB). Writing happens at a granularity equal to the page size, and erasing happens at a granularity equal to block size, and all writes must be performed on an already free page. This means if a new 4KB is being written to the SSD, the SSD controller will look for a free page where the new data can be stored, and will track its location for later accessing. This process alone already creates write amplification up to the page size if the data being written is smaller than a full page. Making new writes to an SSD align to the page size mitigates write amplification.
+
+However, if a previously written page is being modified, since pages cannot be edited and must be rewritten to a new free page and since the granularity for erase operations is so much larger than the page size, there are many pages within the erase block that will eventually need to move to a different block in order to be preserved after the block erasure. The new modified page will need to be written to a different location on the SSD, and then finally the block that held the stale original page must be erased, which is handled eventually by garbage collection. This means that an overwrite operation not only amplifies a <4KB write up to a 4KB write to align with the page size, but a modification of a page results in potential worst case of up to 255KB additional page rewrites into different locations on the drive due to the 256KB block erasure requirement for rewrites, also handled eventually by the SSD controller. All of this means that small writes to an SSD can have cascading effects through interactions with the the garbage collection and wear levelling that result in signifcantly larger amounts of memory interactions occurring. Sequential, page-aligned writes minimize write amplification, while small random overwrites tend to maximize it.
+
+![alt text](write_amp_bouncing.png "Wear leveling and garbage collection impact on write amplification")
+A user writes up to the page size at a time during an SSD write. Anything smaller gets amplified up to the page size, in this case 4KB. Then, due to wear leveling and garbage collection, this page can get bounced around and rewritten to different locations throughout the life of the device, cascading writes, reducing the drive's lifespan, and potentially impacting drive latency if these rewrites occur coincinding with future accesses.
+Image source: [Wikipedia](https://en.wikipedia.org/wiki/Write_amplification)
+
+![alt text](write_amp_erasure.png "4KB write pages and 256KB erase blocks")
+4KB write pages and 256KB erase blocks. In order to modifiy data in a page, the SSD writes the new modified page to a new, free page elsewhere. The old page is marked stale. The whole block will eventually be erased by garbage collection.
+Image source: [Wikipedia](https://en.wikipedia.org/wiki/Write_amplification)
+
 
 ### Access Patterns
 
@@ -76,7 +89,7 @@ The key takeaway here is that random accessing is less efficient in terms of per
 
 `lseek` is a syscall that allows for seeking to a specific byte offset in a given file descriptor. This is how random access in a file is performed. Being a system call, this brings some overhead with it each time it is needed. Sequential reads from a file are able to eliminate `lseek` overhead if a file needs to be read multiple times by a program. 
 
-See the referenced code in the Impact of Rnadom Access Pattern Code Example at the end of this document.
+See the referenced code in the Impact of Random Access Pattern Code Example at the end of this document.
 
 The code example demonstrates costs of random accessing lines in a file using `lseek`. It does so by reading a file with 100000 lines forwards fully sequentially, and by reading the same file backwards, using `lseek` at every line, seeking backwards each time. On my machine, the sequential read pattern without any seeking completes in 53ms, while the random access read pattern using `lseek` at every line completes in 99ms. This is a roughly 2x speedup for reading the same amount of data. In practice, this means that sometimes it may be more performant to read a large chunk of sequential data, potentially reading more data than is actually needed by the program in order to keep the data accesses sequential.
 
@@ -98,9 +111,9 @@ Memoization is the practice of storing the results to expensive calls to functio
 
 In databases, this manifests as denormalization. Duplicate copies of data can be included near other pieces of data which will need to often be accessed together. This optimization increases storage utilization, harms write performance of the database due to data being stored in multiple places, but can significantly improve read performance for the most common cases.
 
-##### TODO: Liam add denormalization image and explanation
+##### TODO LIAM: Liam add denormalization image and explanation
 
-## TODO: LSM Trees Liam add this I guess. DIdn't know where better to put this, it's kind of its own thing
+## TODO LIAM: LSM Trees Liam add this I guess. DIdn't know where better to put this, it's kind of its own thing
 
 
 ## Storage System Fault Tolerance
@@ -114,7 +127,7 @@ TODO: Doug expand on this.
 
 Examine the extreme case where storage space usage is the primary concern.
 
-### TODO: PC games
+### TODO LIAM: PC games
 
 Examine the extreme case where storage space usage is NOT a concern. But also it kind of can be sometimes if porting to console.
 
