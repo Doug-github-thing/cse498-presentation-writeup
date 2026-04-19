@@ -66,16 +66,16 @@ While this is of particular note for HDDs due to how the underlying technology u
 
 Read/Write Amplification refers to operational overhead resulting from the low level hardware implementation of SSDs that result in larger amounts of data being read or written whenever a storage system access occurs. This can cost performance and reduce the lifespan of SSDs.
 
-Solid state drives store their data in pages (often 4KB) within blocks (usually 256KB). Writing happens at a granularity equal to the page size, and erasing happens at a granularity equal to block size, and all writes must be performed on an already free page. This means if a new 4KB is being written to the SSD, the SSD controller will look for a free page where the new data can be stored, and will track its location for later accessing. This process alone already creates write amplification up to the page size if the data being written is smaller than a full page. Making new writes to an SSD align to the page size mitigates write amplification.
+Solid state drives store their data in pages (often 4KiB) within blocks (usually 256KiB). Writing happens at a granularity equal to the page size, and erasing happens at a granularity equal to block size, and all writes must be performed on an already free page. This means if a new 4KiB is being written to the SSD, the SSD controller will look for a free page where the new data can be stored, and will track its location for later accessing. This process alone already creates write amplification up to the page size if the data being written is smaller than a full page. Making new writes to an SSD align to the page size mitigates write amplification.
 
-However, if a previously written page is being modified, since pages cannot be edited and must be rewritten to a new free page and since the granularity for erase operations is so much larger than the page size, there are many pages within the erase block that will eventually need to move to a different block in order to be preserved after the block erasure. The new modified page will need to be written to a different location on the SSD, and then finally the block that held the stale original page must be erased, which is handled eventually by garbage collection. This means that an overwrite operation not only amplifies a <4KB write up to a 4KB write to align with the page size, but a modification of a page results in potential worst case of up to 255KB additional page rewrites into different locations on the drive due to the 256KB block erasure requirement for rewrites, also handled eventually by the SSD controller. All of this means that small writes to an SSD can have cascading effects through interactions with the the garbage collection and wear levelling that result in signifcantly larger amounts of memory interactions occurring. Sequential, page-aligned writes minimize write amplification, while small random overwrites tend to maximize it.
+However, if a previously written page is being modified, since pages cannot be edited and must be rewritten to a new free page and since the granularity for erase operations is so much larger than the page size, there are many pages within the erase block that will eventually need to move to a different block in order to be preserved after the block erasure. The new modified page will need to be written to a different location on the SSD, and then finally the block that held the stale original page must be erased, which is handled eventually by garbage collection. This means that an overwrite operation not only amplifies a <4KiB write up to a 4KiB write to align with the page size, but a modification of a page results in potential worst case of up to 255KiB additional page rewrites into different locations on the drive due to the 256KiB block erasure requirement for rewrites, also handled eventually by the SSD controller. All of this means that small writes to an SSD can have cascading effects through interactions with the the garbage collection and wear levelling that result in signifcantly larger amounts of memory interactions occurring. Sequential, page-aligned writes minimize write amplification, while small random overwrites tend to maximize it.
 
 ![alt text](write_amp_bouncing.png "Wear leveling and garbage collection impact on write amplification")
-A user writes up to the page size at a time during an SSD write. Anything smaller gets amplified up to the page size, in this case 4KB. Then, due to wear leveling and garbage collection, this page can get bounced around and rewritten to different locations throughout the life of the device, cascading writes, reducing the drive's lifespan, and potentially impacting drive latency if these rewrites occur coincinding with future accesses.
+A user writes up to the page size at a time during an SSD write. Anything smaller gets amplified up to the page size, in this case 4KiB. Then, due to wear leveling and garbage collection, this page can get bounced around and rewritten to different locations throughout the life of the device, cascading writes, reducing the drive's lifespan, and potentially impacting drive latency if these rewrites occur coincinding with future accesses.
 Image source: [Wikipedia](https://en.wikipedia.org/wiki/Write_amplification)
 
-![alt text](write_amp_erasure.png "4KB write pages and 256KB erase blocks")
-4KB write pages and 256KB erase blocks. In order to modifiy data in a page, the SSD writes the new modified page to a new, free page elsewhere. The old page is marked stale. The whole block will eventually be erased by garbage collection.
+![alt text](write_amp_erasure.png "4KiB write pages and 256KiB erase blocks")
+4KiB write pages and 256KiB erase blocks. In order to modifiy data in a page, the SSD writes the new modified page to a new, free page elsewhere. The old page is marked stale. The whole block will eventually be erased by garbage collection.
 Image source: [Wikipedia](https://en.wikipedia.org/wiki/Write_amplification)
 
 
@@ -93,7 +93,9 @@ See the referenced code in the Impact of Random Access Pattern Code Example at t
 
 The code example demonstrates costs of random accessing lines in a file using `lseek`. It does so by reading a file with 100000 lines forwards fully sequentially, and by reading the same file backwards, using `lseek` at every line, seeking backwards each time. On my machine, the sequential read pattern without any seeking completes in 53ms, while the random access read pattern using `lseek` at every line completes in 99ms. This is a roughly 2x speedup for reading the same amount of data. In practice, this means that sometimes it may be more performant to read a large chunk of sequential data, potentially reading more data than is actually needed by the program in order to keep the data accesses sequential.
 
-#### Impact of Logging
+### TODO: Write-ahead logging
+
+### Impact of Logging
 
 A significant aspect of maintaining software systems is to be able to have visibility into the operation of the production code. This allows the maintainers to be able to see into the system as it runs, or in many cases after it crashes. As with any good tool, its use is not free. This is the Runtime Performance vs Observability tradeoff. By requiring additional actions from your system, there will be a cost to performing these actions. In many cases, due to ease of use and interacting with a program, the developer may want to print logs directly to stdout or stderr. However as we will see in the following code example, this can incur its own overhead compared to further usage of the storage system. The code example demonstrates what we can expect to pay in performance for different types of file writing paradigms to gain some insight into the cost of specific file system interactions. 
 
@@ -111,9 +113,9 @@ Memoization is the practice of storing the results to expensive calls to functio
 
 In databases, this manifests as denormalization. Duplicate copies of data can be included near other pieces of data which will need to often be accessed together. This optimization increases storage utilization, harms write performance of the database due to data being stored in multiple places, but can significantly improve read performance for the most common cases.
 
-##### TODO LIAM: Liam add denormalization image and explanation
+##### TODO LIAM: add denormalization image and explanation
 
-## TODO LIAM: LSM Trees Liam add this I guess. DIdn't know where better to put this, it's kind of its own thing
+## TODO LIAM: LSM Trees. DIdn't know where better to put this, it's kind of its own thing
 
 
 ## Storage System Fault Tolerance
@@ -122,14 +124,6 @@ Hardware already does some things for you that you don't need to worry about. Bu
 TODO: Doug expand on this.
 
 ## Case Studies
-
-### TODO: Data Logger
-
-Examine the extreme case where storage space usage is the primary concern.
-
-### TODO LIAM: PC games
-
-Examine the extreme case where storage space usage is NOT a concern. But also it kind of can be sometimes if porting to console.
 
 ### Impact of Random Access Pattern Example
 
@@ -334,3 +328,37 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 ```
+
+### Data Logger
+
+This study examines an extreme case where storage space usage is the primary concern. Consider an embedded systems application. Suppose due to decisions around available hardware availability, an environmental monitor circuit board is equipped with an EEPROM with a total of 8KB of storage. The environmental monitor is designed with the intention of using the on-board data storage EEPROM module to store historical temperature and humidity data with a resolution of 0.1 for each parameter, once every 5 minutes. Being a data logger, runtime performance is not critical, since a human interacts with the system only at the time of retroactive data recovery. Beyond correctness, the parameter that most impacts the logger's effectiveness as a produect for a customer is how long it can gather data before running out of storage space.
+
+This application incentivies dense efficient use of its limited storage space. This example will contrast a direct storage implementation against a more thorough compression to give an intuition for the kind of improvements that can be achieved by understanding the requirements of the application and the shape of the data that can be expected.
+
+The code used for this example did not consider specific paging limitations of the EEPROM and for simplcity uses fstream file I/O on a Linux machine as an analog, examining only the relationship between representational storage patterns and total storage space usage for a given number of data points. It iterates through storage patterns until the selected number of data points (3000) fits within the required 8KB of storage. [See the code example here.](https://github.com/Doug-github-thing/cse498-presentation-writeup/tree/main/data_logger)
+
+##### Direct Data Logging Approach
+
+The data logger uses 32 bit UNIX timestamps for tracking the date and time when each data point is taken. Each data point is a 32 bit float. The simplest way to store this data is by putting each 32 bit value directly into memory as is. Using this approach took around 61KB to store 3000 data points. Using the provided `write_naive` implementation, 392 data points can fit into the EEPROM, corresponding to only about 1.3 days of data points. Not a very useful product to put on the market when compared to the more storage space optimized alternatives.
+
+##### Basic Storage Optimizations
+
+The biggest storage improvement gains come from not storing the timestamp more times than necessary. Since it is a given that the data points will come in once every 5 minutes, it is not necessary to store the timestamp more than once. It can go once at the beginning of the EEPROM, and every data point after the first needs only to append the temperature/humidity values. When reading the data back, the logger can take the initial timestamp for the first data point, and then reconstruct the rest of the points by adding in 5 minute increments to the timestamp each time.
+
+The other significant savings comes from bitwidth optimizations on the data values themselves. Since the design constraints indicate that the values being stored are temperature and humidity values with resolution 0.1, they can reasonably be thought of as falling within a range of [000.0, 102.4), since a temperature is unlikely to leave that range and relative humidity is a percentage and aboslutely cannot leave that range. Shifting the decimal place to the right means we are now storing unsigned integers from 0000 to 1023, which can be done using only 10 bits. That means each data point added after the first requires only 20 additional bits of data storage, which is a very significant improvement from the 96 bits used initially.
+
+The last consideration that this storage method uses in order to function correctly is a single integer counter at the beginning of the EEPROM which indicates the bit address on the device where each new point should be written, since data points no longer have clear delimiters. This allows the system to know where to write its data and when to stop reading it back at the end.
+
+All in all using these basic ideas for using less space, this allows 3000 data points to fit snugly within the 8KB of space. Using this paradigm, around 10 days can be made to fit on the same hardware as before.
+
+##### Compression Drawbacks
+
+Note that in the above example, the final storage system usage pattern involves writing individual bits into the storage device. The smallest resolution that the EEPROM in question writes to is the byte level. That means in order to write a specific bit string, the previously written byte must be read from the device, bitmasked in with the new one, and then written back as a full byte. This means that if the system encounters a problem during byte manipulation, there is a chance for data corruption. Through this method, if data is to be lost due to a crash or power failure, the dense combined nature of adjacent 20bit words conflicting with the byte-based architcture of the storage devices means the most recent historical data point can be corrupted by errors in handling the current data point.
+
+Another drawback of this implementation is that it does not account for wear leveling. EEPROMs have a limited number of write cycles that can be executed on specific bytes, and this implementation disproportionately wears on the specific target byte used to track the pointer to the last bit written on the device. A better implementation might include a different memory technology that handles repetitive overwrites more gracefully, or a better mechanism for getting around this.
+
+### TODO LIAM: PC games
+
+Examine the extreme case where storage space usage is NOT a concern. But also it kind of can be sometimes if porting to console. 
+
+<!-- Note the Storage Utilization vs Time To Market trade-off here, since I hinted at it in the contents and think it's important, but it didn't fit anywhere else in this writeup -->
