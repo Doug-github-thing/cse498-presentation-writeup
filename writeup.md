@@ -120,8 +120,41 @@ In databases, this manifests as denormalization. Duplicate copies of data can be
 
 ## Storage System Fault Tolerance
 
-Hardware already does some things for you that you don't need to worry about. But it helps to be aware of what they can and what they can't do for you.
-TODO: Doug expand on this.
+Storage hardware already does some things on its own that you don't need to worry about, but it helps to be aware of what they can and what they can't do for you.
+
+### What the hardware does do
+
+Storage drive hardware is designed to protect the integrity of bits stored in the device, protect the device's lifespan, and degrade gracefully over time instead of crashing.
+
+Storage is not perfect so errors are expected to occur after a certain amount of time, especially as drives age and wear over time. Error correction codes (ECC) are a mechanism that drive controllers use for identifying and correcting for bit corruption that occurs in the device over time. This protects against internal storage issues, slowly degrading memory cells, or other causes for bits to get errorneously flipped.
+
+Device controllers are also responsible for identifying failing sectors and will remap storage away from these blocks in order to hide the negative effects of these failures. This means that over time the effective storage space of a drive will shrink as more and more of the drive ages and degrades. SSDs specifically also use wear leveling to distribute the load on specific storage blocks, and will internally garbage collect to keep pages free for further writes when possible.
+
+### What the hardware does not do
+
+While storage device hardware does a lot of work to ensure that it operates as the programmer expects, device controllers cannot work miracles. There are some remaining considerations at the application level needed to ensure reliability of the storage system. The drives themselves cannot protect against filesystem corruption, bad file writes, accidental data deletion, or application bugs. These must all be handled at the user level.
+
+Data corruption above the device layer can be detected via the use of [checksums](https://en.wikipedia.org/wiki/Checksum).
+
+Storage drives controllers can help ensure integrity of storage as long as they are working as intended, but drives can and do fail over time. The only real way to ensure data persists in the event of a drive failure is to have the data stored in more than one place. If data persistance is important to the application, special care must be taken beyond the device level, in the form of redundancy across multiple domains.
+
+#### Redundancy Across Disks
+
+A local machine may choose to use multiple storage drives in order to avoid losing data due to drive failure. [RAID (Redundant Array of Independant Disks)](https://en.wikipedia.org/wiki/RAID) is a method whereby multiple disks are configured in a way that allows data to persist in the event of storage hardware failure.
+
+RAID 1 is a system that uses two parallel drives, with the data from one drive mirrored on the other. This is a very simple backup paradigm that provides the utility that if one drive fails, the other will persist with the original data intact. It does not use space efficiently, since it uses two whole drives to store one drive's worth of data.
+
+RAID 2-4 are a series of intermediate steps of increasing complexity. They do not have practical uses in the real world at these levels, but exist pedagogically to help understand the complexity of the more practical RAID 5.
+
+RAID 5 is a more space efficient storage configuration that uses block-level striping and distributed parity to allow for reconstruction of lost data through the use of the parity bits distributed over the other storage drives in the event of singular device failure. The specific implementation is outside the scope of this resource since it is not a performance optimization topic, but it is nonetheless interesting and worth [reading more about](https://en.wikipedia.org/wiki/Standard_RAID_levels#RAID_5).
+
+#### Redundancy Across Machines
+
+Storing data in multiple geographic locations can be prudent in specific applications where data persistence is top priority, as it helps to ensure the durability of data against hard to predict contingencies that would otherwise affect specific storage devices like a fire in a data center or other physical disaster that could compromise data storage. A practical solution for developers could be to use a cloud service provider to store a redundant backup of their data, in addition to locally storing it. That way if either system becomes compromised, the replica remains available.
+
+#### Redundancy Across Time
+
+Maintaining backups or snapshots of system configuration can help ensure that data is not lost across time. Systems like git can help to manage versioning for a codebase, or computer system snapshot utilities exist for many modern operating systems. These help ensure that if some new change invalidates the most recent copy of the data, that an older copy exists that will still remain intact.
 
 ## Case Studies
 
