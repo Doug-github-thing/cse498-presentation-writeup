@@ -96,7 +96,7 @@ See the referenced code in the Impact of Random Access Pattern Code Example at t
 
 The code example demonstrates costs of random accessing lines in a file using `lseek`. It does so by reading a file with 100000 lines forwards fully sequentially, and by reading the same file backwards, using `lseek` at every line, seeking backwards each time. On my machine, the sequential read pattern without any seeking completes in 53ms, while the random access read pattern using `lseek` at every line completes in 99ms. This is a roughly 2x speedup for reading the same amount of data. In practice, this means that sometimes it may be more performant to read a large chunk of sequential data, potentially reading more data than is actually needed by the program in order to keep the data accesses sequential.
 
-### TODO: Write-ahead logging
+<!-- ### TODO: Write-ahead logging -->
 
 ### Impact of Logging
 
