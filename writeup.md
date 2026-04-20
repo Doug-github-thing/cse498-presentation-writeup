@@ -60,7 +60,10 @@ Fragmentation refers to when chunks of data are stored in discontiguous location
 
 While this is of particular note for HDDs due to how the underlying technology used, flash-based storage like SSDs do not have this problem. By not having mechanical moving parts, the hardware technology improves the performance of random accesses relative to that of a hard disk. The result of this is that fragmentation is not a significant problem for SSDs performance. Flash technology imposes an opposing restriction however, which is the number of write cycles for a given block of data, usually around 10,000 to 100,000 cycles. Beyond the rated number of write cycles for a block of flash data, the ability for the drive to store new data becomes degraded, limiting the effective life of the device. Additionally, SSD hardware controllers actually intentionally fragment their data in a process called wear levelling, where they may store data in physically discontiguous blocks in order to improve the lifespan of the drive by ensuring that no block gets a disproportional amount of write cycles. Think of this like tire rotations in maintenance of a car. For these reasons, it is recommended that SSDs not be defragmented, due to the fact that rewriting large chunks of data at a time reduces device lifespan without providing significant performance improvements.
 
-### TODO LIAM: Thrashing
+### Thrashing
+Thrashing refers to the process where the computer's memory(RAM) becomes full and begins to overflow, causing a constant state of paging. Paging is a process in most OS's that swaps data between the memory and disk using a dedicated file (such as pagefile on Windows or th eswap partition in Linux) for managing memory. 
+
+Since disk access is much slower than memory access, constantly paging forces the processes relying on the data to wait for the I/O operation, causing the CPU to idle in many cases. If this behavior continues, the constant swapping between disk and memory causes a signifcant increase in memory and disk traffic, slowing and in some cases even preventing other I/O operations. Even with very high speed NVMe SSDs, with their high access speed and incredibly parallel queueing, this can cause a collapse in performance. In some cases, the OS may see that the CPU is being underutilized and attempt to schedule more tasks, amplifying memory usage. Additionally, the incredibly high disk traffic can significantly reduce the lifetime of SSDs due to the constant writing and reading from the pagefile. To avoid thrashing behaviour, it is important to be very careful in managing memory usgae for processes. Unintentionally poor memory behaviour not only impacts the performance of the memory system, but can also cause poor performance at the disk level for all running processes.
 
 ### Read/Write Amplification
 
@@ -113,9 +116,64 @@ Memoization is the practice of storing the results to expensive calls to functio
 
 In databases, this manifests as denormalization. Duplicate copies of data can be included near other pieces of data which will need to often be accessed together. This optimization increases storage utilization, harms write performance of the database due to data being stored in multiple places, but can significantly improve read performance for the most common cases.
 
-##### TODO LIAM: add denormalization image and explanation
+```mermaid
+erDiagram
+    USER_TABLE ||--o{ WEBPAGE_TABLE : "authors"
+    USER_TABLE ||--o{ COMMENT_TABLE : "writes"
+    WEBPAGE_TABLE ||--o{ COMMENT_TABLE : "contains"
 
-## TODO LIAM: LSM Trees. DIdn't know where better to put this, it's kind of its own thing
+    USER_TABLE {
+        int userid PK
+        string username
+        string password
+        string profilePicture
+    }
+
+    WEBPAGE_TABLE {
+        int pageID PK
+        int authorID FK
+        text body
+    }
+
+    COMMENT_TABLE {
+        int commentID PK
+        int pageID FK
+        int userID FK
+        string contentBody
+    }
+
+
+    COMMENT_DENORM {
+        int commentID PK
+        int pageID FK
+        int userID FK
+        string contentBody
+        string redundant_username
+        string redundant_profilePicture
+    }
+```
+The above ERD demonstrates how denormalizing data can be beneficial, especially in database-style environments. In the normalized version (left), when a page is loaded, the system must load the page body, perform a read operation to find each comment that the webpage contains, and then, for each comment, read the User table to find the username and profilePicture values. This ends up being a lot of reads.
+
+By denormalizing the data and storing the redundant username and profilePicture data with the comment data, there is no longer a need to read the User table for each comment. Going a step further, it could even be possible to have a separate file for each pageID, so only one sequential read of that file would be needed when loading the page. This denormalization drastically reduces the number of reads, with the cost being the need to write additional data—potentially doubling write costs in the worst case. However, since this application is read-heavy and likely not very write-heavy, this tradeoff is very beneficial. It is important to consider the common use case, since an application that is updated frequently but only read infrequently would not benefit from this tradeoff.
+
+## Log-Structured Merge Trees
+
+A Log-Structured Merge (LSM) Tree is a data structure used to optimize performance for working with large amounts of data on disk, specifically for database systems. By carefully controlling the structure, size, and write behavior of data, LSM trees create highly optimized write behaviour without sacrificing read performance in the common cases. ![MERGETREE IMAGE](mergeTree.png)
+
+When writing to disk with an LSM, all write data is first accumulated in memory in a MemTable. When the MemTable is full, the entire contents are sorted and flushed to the disk as an "L0" file. This guarantees that the write is fully sequential and is significnatly faster than finding existing records and modifying them in place
+
+When the L0 layer fills up, a process called compaction occurs. 
+ - A set of L0 files are selected. All of the keys in those files are identified, and the files are then merged into L1 files
+ - Each L1 file, and every file in a layer above it, has a unique, non-overlapping key range with other files in the same layer. For example, L1 File 1 may have keys in range 1-10 while L1 File 2 contains keys in range 11-20.
+ - During the merge, obsolete or deleted data is cleaned to preserve data integrity.
+
+As layers fill up, this compaction continues up to the final layer. The size of each layer scales by a constant factor, such as each layer being 10x bigger than the previous one. The compaction step is the only real write-overhead incurred by this structure, but since compaction occurs infrequently, it can often be scheduled in a way that doesn't interfere with running processes.
+
+While the benefits for write behaviour are obvious, the structure is also fairly good for read behaviour. The tree is structured by recency, so recently update data is found on the lowest levels, like L0. In the worst case, which is reading data that hasn't been update din a very long time, the system must read every L0 file and one file on each level above it. The non-overlapping key structure means the system knows which file in each layer the data could be in, meaning there are no unnecessary reads.
+
+Compared to the common B+ trees, the LSM tree has much better write performance. Additionally, while the B+ tree has a smaller search space, it often causes random I/O for reads, meaning the actual read performance is comparable to that of the LSM. Where B+ trees outperform LSMs is mostly in reading entire ranges of data, since this requires scanning the contents of every L0 file and every releveant file at higher levels as well until the full range is found, while B+ trees can simply move linearly once the starting index is found.
+
+
 
 
 ## Storage System Fault Tolerance
@@ -390,8 +448,15 @@ Note that in the above example, the final storage system usage pattern involves 
 
 Another drawback of this implementation is that it does not account for wear leveling. EEPROMs have a limited number of write cycles that can be executed on specific bytes, and this implementation disproportionately wears on the specific target byte used to track the pointer to the last bit written on the device. A better implementation might include a different memory technology that handles repetitive overwrites more gracefully, or a better mechanism for getting around this.
 
-### TODO LIAM: PC games
+### Asset Redundancy in Video Games
 
-Examine the extreme case where storage space usage is NOT a concern. But also it kind of can be sometimes if porting to console. 
+In modern video games with large, highly detailed 3D environments, it has become common for these games to have installation sizes hreatly exceeding 100 GB. While this is seen as standard, the large file size isn't strictly necessary. Most of this space is taken up by large ammounts of duplicated assets and textures. While this may seem like lazy design, and in some cases it actually is, this is actually an optimization strategyu targeted towards Hard Drives. 
+
+When designing the game, if a specific package, such as one for a level or biome, requires a certain texture or asset, that asset is usually just stored within that package, even if it already exists somewhere else. This means that when the package is loaded, all of the needed assets and textures are stored sequentially on disk. While this wastes an incredible amount of disk space, HDDs have incredibly poor random access speeds, needing to wait for the actual disk head to be in the correct location. Additionally, this makes the developer's job very easy, since they don't need to worry about tracking dependencies with shared assets when making edits.
+
+Essentially, since storage is cheap and HDDs are still used, even if in the minority, many developers deliberately choose to waste huge amounts of storage for this optimization. However, this optimization isn't actually always needed. Helldivers 2, a third person shooter game, initially launched with an install size of 154 GB, using the same redundancy technique as other developers. However, later in the game's lifecycle, the developers released a "slim" installation option at just 23 GB, reducing the size by about 80%. 
+
+While working with redundant assets was common practice, the developers eventually realized that the asset loading, even on HDDs, wasn't a bottleneck for load times. As a game with procedurally generated levels, they realized that the asset loading and level generation could be pipelined, and since the level generation was slower than the loading of assets even in the worst case, the disk latency was completely masked by the level generation latency. As a result, they were able to hire a team to fully rewrite th ecodebase without duplicated assets and textures, reducing the file size without any visible performance loss, demonstrating that while applying optimization techniques is important, it is crucial to identify what the actual bottlenecks are in programs before applying optimizations.
+
 
 <!-- Note the Storage Utilization vs Time To Market trade-off here, since I hinted at it in the contents and think it's important, but it didn't fit anywhere else in this writeup -->
